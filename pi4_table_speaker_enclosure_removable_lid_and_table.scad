@@ -1,4 +1,3 @@
-
 /*
 
 pi4_table_speaker_enclosure.scad — Design Summary
@@ -98,7 +97,6 @@ This is a robust, service-oriented Raspberry Pi enclosure optimized for
 maintainability, clean external I/O, internal modularity, and future expansion.
 It is intentionally designed more like a small appliance enclosure than a minimal case.
 
-*/
 // pi4_table_speaker_enclosure.scad
 //
 // Removable speaker table with M2.5 screws.
@@ -112,17 +110,11 @@ It is intentionally designed more like a small appliance enclosure than a minima
 // - Boss width across holes = 25mm, holes near edges (edge inset param)
 //
 // Button openings update:
-// - Keep original button layout sizing (so outer_len does NOT change)
 // - Replace the 3 large rectangular cutouts with 3 round cutouts (Ø24mm)
-//   centered within the original rectangles.
+// - Keep original button layout sizing (so outer_len does NOT change)
 //
-// Tuned values in this file:
-// - SHOW = 2
-// - min_gap_between_openings = 40.0
-// - spk_offset_x = 60
-// - vent_slit_h = 30.0
-// - ports_right_margin = 27.0
-// - pi_bias_to_plusY = 33.0
+// Table update:
+// - Lightweight “skeleton” table plate: minimal material while keeping stiffness
 //
 // SHOW:
 // 0=base only (with Pi standoffs + table posts)
@@ -130,6 +122,8 @@ It is intentionally designed more like a small appliance enclosure than a minima
 // 2=assembly (base + removable table + lid lifted + speakers visual)
 // 3=table only (print this part)
 // 4=speakers visual only
+// 5=base + table (NO lid)
+*/
 
 $fn = 48;
 
@@ -183,9 +177,10 @@ internal_wid_default = 2 * (pi_wid + 2*14); // twice as wide
 // -------------------------
 // Button openings on -Y wall
 // -------------------------
-button_open_w = 2.5 * inch; // 63.5
-button_open_h = 1.5 * inch; // 38.1
-button_hole_d = 24.0;       // NEW: round hole diameter
+button_open_w = 2.5 * inch; // 63.5 (kept for sizing/layout)
+button_open_h = 1.5 * inch; // 38.1 (kept for sizing/layout)
+button_hole_d = 24.0;       // round hole diameter
+
 button_gap_x     = 12.0;
 button_extra_len = 30.0;
 
@@ -260,6 +255,17 @@ table_post_inset = 10.0;
 m25_clear_d   = 2.8;
 m25_pilot_d   = 2.2;
 table_post_od = 8.0;
+
+// -------------------------
+// Lightweight table plate (minimal material, still stiff)
+// -------------------------
+TABLE_LITE_ENABLE = true;
+
+table_frame_w  = 6.0;   // perimeter frame width (set 0 to disable)
+table_rib_w    = 6.0;   // rib width
+table_boss_pad = 14.0;  // square pad size around each post hole (mm)
+
+spk_pad_margin = 4.0;   // pad extends beyond speaker footprint
 
 underside_of_lid_z = outer_hgt - lid_th;
 table_top_z        = underside_of_lid_z - spk_h;
@@ -370,13 +376,12 @@ module usbc_slit_and_holes_plusY() {
 }
 
 // -------------------------
-// Three button openings on -Y wall (UPDATED: 3x Ø24mm, -Y wall only)
+// Three button openings on -Y wall (3x Ø24mm, robust boolean)
 // -------------------------
 module button_openings_minusY() {
-  // Robust wall-only cutter: centered in the -Y wall thickness.
-  eps = 0.8;                // small safety to avoid coplanar/tolerance issues
-  cut_h = wall + eps;       // slightly larger than wall
-  y_center = wall / 2;      // center of the -Y wall (y=0..wall)
+  eps = 0.8;
+  cut_h = wall + eps;
+  y_center = wall / 2;
 
   let(
     total_span = buttons_total_span_x,
@@ -392,7 +397,7 @@ module button_openings_minusY() {
         z_center = button_open_z + button_open_h/2
       )
       translate([x_center, y_center, z_center])
-        rotate([90,0,0]) // cylinder axis along Y
+        rotate([90,0,0])
           cylinder(h=cut_h, d=button_hole_d, center=true);
     }
   }
@@ -441,14 +446,71 @@ function post_y0() = wall + table_post_inset;
 function post_y1() = outer_wid - wall - table_post_inset;
 
 module table_plate() {
-  difference() {
-    translate([table_x0(), table_y0(), table_plate_z0])
-      box(table_x1()-table_x0(), table_y1()-table_y0(), table_th);
+  if (!TABLE_LITE_ENABLE) {
+    difference() {
+      translate([table_x0(), table_y0(), table_plate_z0])
+        box(table_x1()-table_x0(), table_y1()-table_y0(), table_th);
 
-    for (px = [post_x0(), post_x1()])
-      for (py = [post_y0(), post_y1()])
-        translate([px, py, table_plate_z0 - 0.2])
-          cylinder(h=table_th + 0.4, d=m25_clear_d);
+      for (px = [post_x0(), post_x1()])
+        for (py = [post_y0(), post_y1()])
+          translate([px, py, table_plate_z0 - 0.2])
+            cylinder(h=table_th + 0.4, d=m25_clear_d);
+    }
+  } else {
+    difference() {
+      union() {
+        // 1) Perimeter frame (optional)
+        if (table_frame_w > 0) {
+          translate([table_x0(), table_y0(), table_plate_z0])
+            box(table_x1()-table_x0(), table_frame_w, table_th);
+          translate([table_x0(), table_y1()-table_frame_w, table_plate_z0])
+            box(table_x1()-table_x0(), table_frame_w, table_th);
+
+          translate([table_x0(), table_y0(), table_plate_z0])
+            box(table_frame_w, table_y1()-table_y0(), table_th);
+          translate([table_x1()-table_frame_w, table_y0(), table_plate_z0])
+            box(table_frame_w, table_y1()-table_y0(), table_th);
+        }
+
+        // 2) Boss pads around the 4 post holes
+        for (px = [post_x0(), post_x1()])
+          for (py = [post_y0(), post_y1()])
+            translate([px - table_boss_pad/2, py - table_boss_pad/2, table_plate_z0])
+              box(table_boss_pad, table_boss_pad, table_th);
+
+        // 3) Speaker pads (full landing zones)
+        cx = outer_len/2;
+        cy = outer_wid/2 + spk_offset_y;
+
+        pad_w = spk_w + 2*spk_pad_margin;
+        pad_d = spk_d + 2*spk_pad_margin;
+
+        xL = cx - spk_offset_x - pad_w/2;
+        xR = cx + spk_offset_x - pad_w/2;
+        y0 = cy - pad_d/2;
+
+        translate([xL, y0, table_plate_z0]) box(pad_w, pad_d, table_th);
+        translate([xR, y0, table_plate_z0]) box(pad_w, pad_d, table_th);
+
+        // 4) Ribs: connect speaker pads to post bosses (load paths)
+        y_mid = cy;
+
+        // Main horizontal rib through speaker pad centers
+        translate([post_x0(), y_mid - table_rib_w/2, table_plate_z0])
+          box(post_x1()-post_x0(), table_rib_w, table_th);
+
+        // Vertical rib tying mid rib to top/bottom bosses near center
+        x_mid = cx;
+        translate([x_mid - table_rib_w/2, post_y0(), table_plate_z0])
+          box(table_rib_w, post_y1()-post_y0(), table_th);
+      }
+
+      // Post clearance holes
+      for (px = [post_x0(), post_x1()])
+        for (py = [post_y0(), post_y1()])
+          translate([px, py, table_plate_z0 - 0.2])
+            cylinder(h=table_th + 0.4, d=m25_clear_d);
+    }
   }
 }
 
@@ -555,16 +617,23 @@ module base() {
 // -------------------------
 if (SHOW == 0) {
   base();
+
 } else if (SHOW == 1) {
   lid();
+
 } else if (SHOW == 2) {
   base();
   table_plate();
   translate([0,0,8]) lid();
   speakers_visual();
+
 } else if (SHOW == 3) {
   table_plate();
-} else {
-  speakers_visual();
-}
 
+} else if (SHOW == 4) {
+  speakers_visual();
+
+} else if (SHOW == 5) {
+  base();
+  table_plate();
+}
