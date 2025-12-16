@@ -123,6 +123,8 @@
 	// 3=table only (print this part)
 	// 4=speakers visual only
 	// 5=base + table (NO lid)
+  	// 6=Table + speaker placeholders only
+  	// 7=Full assembly: base + table + speakers + lid CLOSED
 	*/
 
 $fn = 48;
@@ -260,7 +262,9 @@ table_boss_pad = 14.0;
 spk_pad_margin = 4.0;
 
 underside_of_lid_z = outer_hgt - lid_th;
-table_top_z        = underside_of_lid_z - spk_h;
+
+// Speakers flush with TOP of lid (partially embedded into lid by lid_th):
+table_top_z        = outer_hgt - spk_h;
 
 table_plate_z0 = table_top_z - table_th;
 
@@ -501,7 +505,6 @@ module lid_stiffener_ribs() {
     rib_yc_min = lid_rib_edge_y + lid_rib_wy/2;
     rib_yc_max = outer_wid - lid_rib_edge_y - lid_rib_wy/2;
 
-    // Boat keepout (outer pouch footprint + gap) — respects POUCH_ROTATE_90
     boat_keep_y0 = pouch_cy - pouch_extent_y()/2 - lid_rib_gap_from_features - lid_rib_wy/2;
     boat_keep_y1 = pouch_cy + pouch_extent_y()/2 + lid_rib_gap_from_features + lid_rib_wy/2;
 
@@ -810,7 +813,8 @@ module table_posts() {
 // Speakers (visual only)
 // -------------------------
 module speakers_visual() {
-  spk_z0 = table_top_z - spk_h;
+  // Place speakers ON TOP of the table (not below it)
+  spk_z0 = table_top_z;
 
   cx = outer_len/2;
   cy = outer_wid/2 + spk_offset_y;
@@ -900,7 +904,6 @@ module base() {
   if (CENTER_CATCH_ENABLE) {
     cx = outer_len/2;
 
-    // Match support post to rotated table's + intersection if ROTATE_LID_AND_TABLE is enabled.
     cy_unrot = outer_wid/2 + spk_offset_y;
     cy = ROTATE_LID_AND_TABLE ? (outer_wid - cy_unrot) : cy_unrot;
 
@@ -921,6 +924,7 @@ if (SHOW == 0) {
   rotate_about_center_z(ROTATE_LID_AND_TABLE)
     lid();
 } else if (SHOW == 2) {
+  // Assembly (lid lifted) - legacy view
   base();
 
   rotate_about_center_z(ROTATE_LID_AND_TABLE)
@@ -942,5 +946,23 @@ if (SHOW == 0) {
 
   rotate_about_center_z(ROTATE_LID_AND_TABLE)
     table_plate();
+} else if (SHOW == 6) {
+  // Table + speaker placeholders only
+  rotate_about_center_z(ROTATE_LID_AND_TABLE) {
+    table_plate();
+    speakers_visual();
+  }
+} else if (SHOW == 7) {
+  // Full assembly: base + table + speakers + lid CLOSED
+  base();
+
+  rotate_about_center_z(ROTATE_LID_AND_TABLE)
+    table_plate();
+
+  rotate_about_center_z(ROTATE_LID_AND_TABLE)
+    speakers_visual();
+
+  rotate_about_center_z(ROTATE_LID_AND_TABLE)
+    lid();
 }
 
