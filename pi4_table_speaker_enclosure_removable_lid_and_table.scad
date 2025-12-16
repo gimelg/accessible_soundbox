@@ -165,6 +165,9 @@ pi_usbeth_center_from_left = 31.0;
 pi_port_fine_x = 0.0;
 pi_side_margin = 2.0;
 
+// Pilot hole depths (blind, from top)
+standoff_pilot_depth = 5.5; // mm, from top of standoff downward
+
 // -------------------------
 // Height & width controls
 // -------------------------
@@ -248,6 +251,9 @@ table_post_inset = 10.0;
 m25_clear_d   = 2.8;
 m25_pilot_d   = 2.2;
 table_post_od = 8.0;
+
+// Pilot hole depths (blind, from top)
+table_post_pilot_depth = 8.0; // mm, from top of table post downward
 
 // -------------------------
 // Lightweight table plate
@@ -399,6 +405,9 @@ lid_boss_z0         = floor_th;
 // How far the screw center is inset from the inside corner (increase to move away from lid corner)
 lid_hole_inset_from_corner = 3.0;
 
+// Blind pilot depth for corner bosses (from top of boss downward)
+lid_boss_pilot_depth = 8.0; // mm
+
 // Table clearance notch radius around corner bosses
 table_corner_clear_radial = 0.8; // extra margin beyond boss radius
 table_corner_clear_r = lid_corner_boss_r + table_corner_clear_radial;
@@ -421,18 +430,26 @@ module lid_rib_block(x0, x1, yc, wy, z_und, h) {
 }
 
 module standoff(x,y) {
+  // Blind pilot from top of standoff, leaves solid material at the bottom
+  pilot_d = min(standoff_pilot_depth, max(0.2, standoff_h - 1.0));
   translate([x,y,floor_th])
     difference() {
       cylinder(h=standoff_h, d=standoff_od);
-      translate([0,0,-0.1]) cylinder(h=standoff_h+0.2, d=standoff_id);
+
+      translate([0,0,standoff_h - pilot_d])
+        cylinder(h=pilot_d + 0.2, d=standoff_id);
     }
 }
 
 module post_m25(x,y) {
+  // Blind pilot from top of table post
+  pilot_d = min(table_post_pilot_depth, max(0.2, table_post_h - 2.0));
   translate([x,y,table_post_z0])
     difference() {
       cylinder(h=table_post_h, d=table_post_od);
-      translate([0,0,-0.1]) cylinder(h=table_post_h+0.2, d=m25_pilot_d);
+
+      translate([0,0,table_post_h - pilot_d])
+        cylinder(h=pilot_d + 0.2, d=m25_pilot_d);
     }
 }
 
@@ -464,9 +481,11 @@ function screw_x_right() = outer_len - wall - lid_hole_inset_from_corner;
 function screw_y_front() = wall + lid_hole_inset_from_corner;
 function screw_y_back()  = outer_wid - wall - lid_hole_inset_from_corner;
 
-// Quarter-boss at corner (cx,cy), with pilot drilled at (hx,hy)
+// Quarter-boss at corner (cx,cy), with blind pilot drilled from top
 module corner_quarter_boss(corner_x, corner_y, hole_x, hole_y) {
   boss_h = (outer_hgt - lid_th) - lid_boss_z0 - lid_boss_top_clear;
+
+  pilot_d = min(lid_boss_pilot_depth, max(0.2, boss_h - 2.0));
 
   translate([0,0,lid_boss_z0])
     difference() {
@@ -479,9 +498,9 @@ module corner_quarter_boss(corner_x, corner_y, hole_x, hole_y) {
           cube([outer_len - 2*wall, outer_wid - 2*wall, boss_h], center=false);
       }
 
-      // drill pilot at the inset screw center (NOT at the corner point)
-      translate([hole_x, hole_y, -0.2])
-        cylinder(h=boss_h + 0.4, d=lid_boss_pilot_d);
+      // blind pilot at the inset screw center (drilled from top of boss)
+      translate([hole_x, hole_y, boss_h - pilot_d])
+        cylinder(h=pilot_d + 0.4, d=lid_boss_pilot_d);
     }
 }
 
@@ -1024,6 +1043,7 @@ module base() {
       cylinder(h=h_catch, d=table_post_od);
   }
 }
+
 
 // -------------------------
 // Build selector
