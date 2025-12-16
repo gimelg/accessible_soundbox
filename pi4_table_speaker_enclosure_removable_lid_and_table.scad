@@ -128,7 +128,7 @@
 	*/
 $fn = 48;
 
-SHOW = 1;
+SHOW = 2;
 MIRROR_PORT_FACE = true;
 
 // Rotate lid + table (and speaker visual) 180° around Z relative to the base.
@@ -319,7 +319,7 @@ POUCH_ROTATE_90 = true;
 
 // CLEAR (inside) dimensions at the lid opening
 pouch_open_len_y = 43.0;   // Y
-pouch_open_wid_x = 10.0;   // X
+pouch_open_wid_x = 12.0;   // X
 pouch_depth      = 12.0;   // Z down
 
 // Material thickness (grows outward)
@@ -618,39 +618,63 @@ module lid_stiffener_ribs() {
 }
 
 // -------------------------
-// Pouch shell (printed with lid)
+// Pouch shell (printed with lid) - taper ONLY length, not width
 // -------------------------
 module lid_pouch_shell() {
   z_lid_underside = outer_hgt - lid_th;
 
+  // Outer shell dims (top at lid underside)
   L0 = pouch_len_y;
   W0 = pouch_wid_x;
   R0 = pouch_round + pouch_wall;
 
+  // Inner void dims (top at lid underside)
   Li0 = pouch_open_len_y;
   Wi0 = pouch_open_wid_x;
   Ri0 = pouch_round;
 
-  s = pouch_taper;
+  // Taper factor applies ONLY to LENGTH (long axis)
+  sL = pouch_taper;
+
+  // Align capsule "length axis" to 2D X via rotation, then taper L only.
   rot2d = POUCH_ROTATE_90 ? 0 : 90;
+
+  // Bottom (tapered) lengths; clamp so capsule remains valid
+  L1  = max(W0  + 0.2, L0  * sL);
+  Li1 = max(Wi0 + 0.2, Li0 * sL);
 
   translate([pouch_cx, pouch_cy, z_lid_underside]) {
     mirror([0,0,1]) {
       difference() {
-        linear_extrude(height=pouch_depth, scale=s, convexity=10)
-          rotate(rot2d) capsule2d(L0, W0, R0);
+        // OUTER tapered solid: hull of top & bottom thin extrusions
+        hull() {
+          linear_extrude(height=0.2, convexity=10)
+            rotate(rot2d) capsule2d(L0, W0, R0);
 
+          translate([0,0,pouch_depth - 0.2])
+            linear_extrude(height=0.2, convexity=10)
+              rotate(rot2d) capsule2d(L1, W0, R0);
+        }
+
+        // INNER tapered cut: hull of top & bottom thin extrusions
         translate([0,0,-0.2])
-          linear_extrude(height=pouch_depth + 0.4, scale=s, convexity=10)
-            rotate(rot2d) capsule2d(Li0, Wi0, Ri0);
+          hull() {
+            linear_extrude(height=0.6, convexity=10)
+              rotate(rot2d) capsule2d(Li0, Wi0, Ri0);
+
+            translate([0,0,pouch_depth - 0.2])
+              linear_extrude(height=0.6, convexity=10)
+                rotate(rot2d) capsule2d(Li1, Wi0, Ri0);
+          }
       }
     }
   }
 
+  // Retention rib near bottom (width is NOT tapered anymore)
   if (pouch_retain_enable) {
     z_bottom = z_lid_underside - pouch_depth;
 
-    inner_bot_w = pouch_open_wid_x * pouch_taper;
+    inner_bot_w = pouch_open_wid_x; // width constant
     overlap = pouch_retain_overlap;
     rib_len = max(0.2, inner_bot_w + overlap);
 
@@ -1016,7 +1040,7 @@ if (SHOW == 0) {
     table_plate();
 
   rotate_about_center_z(ROTATE_LID_AND_TABLE)
-    translate([0,0,8]) lid();
+    translate([0,0,20]) lid();
 
   rotate_about_center_z(ROTATE_LID_AND_TABLE)
     speakers_visual();
