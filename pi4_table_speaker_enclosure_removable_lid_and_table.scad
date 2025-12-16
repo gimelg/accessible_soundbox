@@ -126,7 +126,6 @@
   	// 6=Table + speaker placeholders only
   	// 7=Full assembly: base + table + speakers + lid CLOSED
 	*/
-
 $fn = 48;
 
 SHOW = 1;
@@ -384,6 +383,27 @@ lid_mid_rib_enable = true;
 lid_mid_rib_clear  = 2.0;
 
 // -------------------------
+// Lid fastening (quarter-circle corner bosses + inward hole centers)
+// -------------------------
+LID_SCREWS_ENABLE   = true;
+
+// Quarter-boss radius at the *corner* (bigger radius allows moving the hole inward)
+lid_corner_boss_r   = 7.0;   // OD = 14mm
+
+lid_boss_pilot_d    = 2.2;   // pilot for M2.5 thread-forming
+lid_screw_clear_d   = 2.9;   // lid clearance for M2.5
+
+lid_boss_top_clear  = 0.4;   // keep boss slightly below lid seat plane
+lid_boss_z0         = floor_th;
+
+// How far the screw center is inset from the inside corner (increase to move away from lid corner)
+lid_hole_inset_from_corner = 3.0;
+
+// Table clearance notch radius around corner bosses
+table_corner_clear_radial = 0.8; // extra margin beyond boss radius
+table_corner_clear_r = lid_corner_boss_r + table_corner_clear_radial;
+
+// -------------------------
 // Helpers
 // -------------------------
 module box(x,y,z) { cube([x,y,z], center=false); }
@@ -433,6 +453,54 @@ module rotate_about_center_z(do_it=true) {
           children();
   } else {
     children();
+  }
+}
+
+// -------------------------
+// Lid fastening geometry
+// -------------------------
+function screw_x_left()  = wall + lid_hole_inset_from_corner;
+function screw_x_right() = outer_len - wall - lid_hole_inset_from_corner;
+function screw_y_front() = wall + lid_hole_inset_from_corner;
+function screw_y_back()  = outer_wid - wall - lid_hole_inset_from_corner;
+
+// Quarter-boss at corner (cx,cy), with pilot drilled at (hx,hy)
+module corner_quarter_boss(corner_x, corner_y, hole_x, hole_y) {
+  boss_h = (outer_hgt - lid_th) - lid_boss_z0 - lid_boss_top_clear;
+
+  translate([0,0,lid_boss_z0])
+    difference() {
+      // keep only the part of the corner cylinder inside the base interior footprint
+      intersection() {
+        translate([corner_x, corner_y, 0])
+          cylinder(h=boss_h, r=lid_corner_boss_r);
+
+        translate([wall, wall, 0])
+          cube([outer_len - 2*wall, outer_wid - 2*wall, boss_h], center=false);
+      }
+
+      // drill pilot at the inset screw center (NOT at the corner point)
+      translate([hole_x, hole_y, -0.2])
+        cylinder(h=boss_h + 0.4, d=lid_boss_pilot_d);
+    }
+}
+
+module lid_corner_bosses_quarter() {
+  if (LID_SCREWS_ENABLE) {
+    // Inside corners (base interior corners are at wall offsets)
+    corner_quarter_boss(wall,             wall,             screw_x_left(),  screw_y_front());
+    corner_quarter_boss(outer_len - wall, wall,             screw_x_right(), screw_y_front());
+    corner_quarter_boss(wall,             outer_wid - wall,  screw_x_left(),  screw_y_back());
+    corner_quarter_boss(outer_len - wall, outer_wid - wall,  screw_x_right(), screw_y_back());
+  }
+}
+
+module lid_screw_holes() {
+  if (LID_SCREWS_ENABLE) {
+    for (x = [screw_x_left(), screw_x_right()])
+      for (y = [screw_y_front(), screw_y_back()])
+        translate([x, y, outer_hgt - lid_th - 0.2])
+          cylinder(h=lid_th + 0.4, d=lid_screw_clear_d);
   }
 }
 
@@ -505,6 +573,7 @@ module lid_stiffener_ribs() {
     rib_yc_min = lid_rib_edge_y + lid_rib_wy/2;
     rib_yc_max = outer_wid - lid_rib_edge_y - lid_rib_wy/2;
 
+    // Boat keepout (outer pouch footprint + gap) — respects POUCH_ROTATE_90
     boat_keep_y0 = pouch_cy - pouch_extent_y()/2 - lid_rib_gap_from_features - lid_rib_wy/2;
     boat_keep_y1 = pouch_cy + pouch_extent_y()/2 + lid_rib_gap_from_features + lid_rib_wy/2;
 
@@ -529,12 +598,6 @@ module lid_stiffener_ribs() {
 
     rib2_ok = (top_band_y1 > top_band_y0);
     rib2_yc_final = rib2_ok ? (top_band_y0 + top_band_y1)/2 : 0;
-
-    echo("pouch_cy=", pouch_cy, " boat_keep_y0=", boat_keep_y0, " boat_keep_y1=", boat_keep_y1);
-    echo("spk_y0=", spk_y0, " spk_y1=", spk_y1);
-    echo("mid_band=[", mid_band_y0, ",", mid_band_y1, "] ribm_ok=", ribm_ok, " mid=", ribm_yc);
-    echo("top_band=[", top_band_y0, ",", top_band_y1, "] rib2_ok=", rib2_ok, " rib2=", rib2_yc_final);
-    echo("rib1_ok=", rib1_ok, " rib1=", rib1_yc_final);
 
     difference() {
       union() {
@@ -643,8 +706,8 @@ echo("USB-C center X(model)=", usbc_x_center, " USBC_SCREW_C2C=", USBC_SCREW_C2C
 // Cutouts on +Y wall
 // -------------------------
 module usb_eth_window_plusY() {
-  translate([usbeth_x0, outer_wid - usbeth_cut_depth, usbeth_win_z])
-    box(usbeth_win_len_x, usbeth_cut_depth + 2.0, usbeth_win_h_z);
+  translate([usbeth_x0, outer_wid - (wall + 2.0), usbeth_win_z])
+    box(usbeth_win_len_x, (wall + 2.0) + 2.0, usbeth_win_h_z);
 }
 
 module usbc_slit_and_holes_plusY() {
@@ -734,6 +797,20 @@ function post_x1() = outer_len - wall - table_post_inset;
 function post_y0() = wall + table_post_inset;
 function post_y1() = outer_wid - wall - table_post_inset;
 
+module table_corner_clearance_cutouts() {
+  // Elegant rounded notches so table clears the base corner boss material
+  if (LID_SCREWS_ENABLE && table_corner_clear_r > 0) {
+    zc = table_plate_z0 - 0.2;
+    hh = table_th + 0.4;
+
+    // Boss centers are at the *inside* corners: (wall, wall), etc.
+    translate([wall,             wall,             zc]) cylinder(h=hh, r=table_corner_clear_r);
+    translate([outer_len - wall, wall,             zc]) cylinder(h=hh, r=table_corner_clear_r);
+    translate([wall,             outer_wid - wall,  zc]) cylinder(h=hh, r=table_corner_clear_r);
+    translate([outer_len - wall, outer_wid - wall,  zc]) cylinder(h=hh, r=table_corner_clear_r);
+  }
+}
+
 module table_plate() {
   if (!TABLE_LITE_ENABLE) {
     difference() {
@@ -744,6 +821,8 @@ module table_plate() {
         for (py = [post_y0(), post_y1()])
           translate([px, py, table_plate_z0 - 0.2])
             cylinder(h=table_th + 0.4, d=m25_clear_d);
+
+      table_corner_clearance_cutouts();
     }
   } else {
     difference() {
@@ -799,6 +878,8 @@ module table_plate() {
         for (py = [post_y0(), post_y1()])
           translate([px, py, table_plate_z0 - 0.2])
             cylinder(h=table_th + 0.4, d=m25_clear_d);
+
+      table_corner_clearance_cutouts();
     }
   }
 }
@@ -847,6 +928,9 @@ module lid() {
         box(spk_open_w, spk_open_d, lid_th + 0.2);
 
       if (POUCH_ENABLE) lid_pouch_opening_cut();
+
+      // Screw clearance holes in the lid (uses the inset screw centers)
+      lid_screw_holes();
     }
 
     if (POUCH_ENABLE) lid_pouch_reinforcement_ring();
@@ -897,13 +981,15 @@ module base() {
   standoff(pi_origin_x + pi_hole_off,              pi_origin_y + pi_hole_off);
   standoff(pi_origin_x + pi_hole_off + pi_hole_dx, pi_origin_y + pi_hole_off);
   standoff(pi_origin_x + pi_hole_off,              pi_origin_y + pi_hole_off + pi_hole_dy);
-  standoff(pi_origin_x + pi_hole_off + pi_hole_dx, pi_origin_y + pi_hole_off + pi_hole_dy);
+  standoff(pi_origin_x + pi_hole_off + pi_hole_dx, pi_origin_y + pi_hole_off + pi_hole_off + (pi_hole_dy - pi_hole_off));
 
   table_posts();
+  lid_corner_bosses_quarter();
 
   if (CENTER_CATCH_ENABLE) {
     cx = outer_len/2;
 
+    // Match support post to rotated table's + intersection if ROTATE_LID_AND_TABLE is enabled.
     cy_unrot = outer_wid/2 + spk_offset_y;
     cy = ROTATE_LID_AND_TABLE ? (outer_wid - cy_unrot) : cy_unrot;
 
@@ -924,7 +1010,6 @@ if (SHOW == 0) {
   rotate_about_center_z(ROTATE_LID_AND_TABLE)
     lid();
 } else if (SHOW == 2) {
-  // Assembly (lid lifted) - legacy view
   base();
 
   rotate_about_center_z(ROTATE_LID_AND_TABLE)
