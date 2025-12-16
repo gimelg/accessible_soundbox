@@ -1,6 +1,6 @@
 # Audiobox Raspberry Pi Software Playbook
 
-The Audiobox is an appliance‑style audio player for a limited-access user such as a child, an elderly person, or a visually impared user:
+The Audiobox is an appliance‑style audio player for a limited-access user such as a child, an elderly person, or a visually impaired user:
 - No screen
 - No keyboard
 - No Wi‑Fi required
@@ -9,7 +9,7 @@ The Audiobox is an appliance‑style audio player for a limited-access user such
 - USB stick–based content management
 
 This document is a **complete, end‑to‑end software playbook** for recreating the Audiobox system on a fresh Raspberry Pi.  
-It covers **design intent**, **architecture**, and **exact implementation steps**.
+It covers **design intent**, **architecture**, and **exact implementation steps**, including **GPIO button wiring**.
 
 ---
 
@@ -30,6 +30,7 @@ It covers **design intent**, **architecture**, and **exact implementation steps*
 - **FIFO pipe** for playback control
 - **Shell scripts** representing button actions
 - **USB manager** handling content updates and reboot
+- **GPIO button handler** that runs the shell scripts on button presses
 - **systemd services** to glue everything together
 
 ### Key principle
@@ -48,6 +49,9 @@ It covers **design intent**, **architecture**, and **exact implementation steps*
 ├── audiobox_ctl.sh             # Writes commands into FIFO
 ├── load_playlist.sh            # Loads and starts playlist
 ├── btn_playpause.sh            # Smart Play/Pause logic
+├── btn_next.sh                 # Next track/book
+├── btn_prev.sh                 # Previous track/book
+├── audiobox_gpio.py            # GPIO listener -> runs button scripts
 ├── usb_manager.py              # USB Add/Delete/Reboot logic
 ├── usb-import.log              # USB operation log
 └── .audiobox_state             # PLAYING / PAUSED
@@ -129,7 +133,6 @@ This avoids fragile log parsing.
 ### audiobox-player.service
 
 Runs mplayer continuously in background.
-
 
 ---
 
@@ -234,12 +237,143 @@ All USB operations logged to:
 
 ---
 
-## 17. Hardware Buttons (Later)
+## 17. Hardware Buttons: Wiring + GPIO Service
 
-GPIO buttons simply execute shell scripts:
-- Play/Pause → `btn_playpause.sh`
+### 17.1 Button hardware (EG STARTS arcade buttons)
 
-No GPIO code touches mplayer directly.
+EG STARTS arcade buttons typically use a microswitch with three terminals:
+- **COM** (common)
+- **NO** (normally open)
+- **NC** (normally closed)
+
+For Audiobox, use **COM + NO** only (ignore NC).
+
+### 17.2 Wiring method (recommended)
+
+Use the Pi’s **internal pull-up resistors**.
+
+For each button:
+- **COM → GND**
+- **NO → GPIO pin**
+
+Do **not** connect to 3.3V.
+
+### 17.3 Suggested GPIO mapping (BCM numbering)
+
+- Play/Pause → **GPIO17**
+- Next → **GPIO27**
+- Prev → **GPIO22**
+- Ground → any Pi GND pin (e.g., physical pin 6)
+
+### 17.4 Software: GPIO handler script
+
+Install dependency:
+```bash
+sudo apt update
+sudo apt install -y python3-gpiozero
+```
+
+Create `/home/USER/audiobox_gpio.py`:
+
+```python
+#!/usr/bin/env python3
+from gpiozero import Button
+from signal import pause
+import subprocess
+import time
+
+# BCM pin numbers
+PIN_PLAYPAUSE = 17
+PIN_NEXT = 27
+PIN_PREV = 22
+
+SCRIPT_PLAYPAUSE = "/home/USER/btn_playpause.sh"
+SCRIPT_NEXT = "/home/USER/btn_next.sh"
+SCRIPT_PREV = "/home/USER/btn_prev.sh"
+
+BOUNCE = 0.10
+MIN_INTERVAL = 0.20
+_last = {"pp": 0.0, "n": 0.0, "p": 0.0}
+
+def run_script(path: str) -> None:
+    subprocess.Popen([path])
+
+def guarded(key: str, fn) -> None:
+    now = time.monotonic()
+    if now - _last[key] >= MIN_INTERVAL:
+        _last[key] = now
+        fn()
+
+playpause = Button(PIN_PLAYPAUSE, pull_up=True, bounce_time=BOUNCE)
+next_btn  = Button(PIN_NEXT,      pull_up=True, bounce_time=BOUNCE)
+prev_btn  = Button(PIN_PREV,      pull_up=True, bounce_time=BOUNCE)
+
+playpause.when_pressed = lambda: guarded("pp", lambda: run_script(SCRIPT_PLAYPAUSE))
+next_btn.when_pressed  = lambda: guarded("n",  lambda: run_script(SCRIPT_NEXT))
+prev_btn.when_pressed  = lambda: guarded("p",  lambda: run_script(SCRIPT_PREV))
+
+pause()
+```
+
+Make executable:
+
+```bash
+chmod +x /home/USER/audiobox_gpio.py
+```
+
+Test interactively (Ctrl+C to stop):
+```bash
+python3 /home/USER/audiobox_gpio.py
+```
+
+### 17.5 systemd service: audiobox-gpio.service
+
+Create `/etc/systemd/system/audiobox-gpio.service`:
+
+```ini
+[Unit]
+Description=Audiobox GPIO button handler
+After=multi-user.target audiobox-player.service
+Wants=audiobox-player.service
+
+[Service]
+Type=simple
+User=USER
+WorkingDirectory=/home/USER
+ExecStart=/usr/bin/python3 /home/USER/audiobox_gpio.py
+Restart=always
+RestartSec=1
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable/start:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable audiobox-gpio.service
+sudo systemctl restart audiobox-gpio.service
+sudo systemctl status audiobox-gpio.service
+```
+
+#### Common failure: systemd unit parse errors
+
+If you see errors like:
+- `Assignment outside of section`
+- `Missing '='`
+
+Then the unit file contains stray characters or broken lines. Fix by **replacing the file entirely** with the exact unit content above, then run:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart audiobox-gpio.service
+```
+
+To inspect with line numbers:
+```bash
+nl -ba /etc/systemd/system/audiobox-gpio.service
+```
 
 ---
 
@@ -270,3 +404,4 @@ A durable audiobook player that:
 - A non‑technical caregiver can maintain
 - Recovers from errors
 - Requires no ongoing supervision
+
