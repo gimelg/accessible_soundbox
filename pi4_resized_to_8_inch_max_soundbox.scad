@@ -185,7 +185,7 @@ internal_wid_default = 2 * (pi_wid + 2*14);
 // Button openings on -Y wall
 // -------------------------
 button_open_h = 1.5 * inch; // kept for Z placement intent
-button_hole_d = 24.0;       // hole diameter unchanged
+button_hole_d = 26.0;       // hole diameter unchanged
 
 // Uneven button “allocation lengths” for spacing only
 button_len_L = 50.0;
