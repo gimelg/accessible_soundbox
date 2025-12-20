@@ -1008,7 +1008,8 @@ module lid_side_rails() {
     }
     if (yB2 >= y_min && yB2 <= y_max) {
       translate([x0, yB2 - lid_rib_wy/2, z_und - lid_side_rail_h])
-        box(x1 - x0, lid_rib_wy, lid_rib_wy, lid_side_rail_h);
+	box(x1 - x0, lid_rib_wy, lid_side_rail_h);
+
     }
   }
 }
