@@ -126,6 +126,7 @@
   	// 6=Table + speaker placeholders only
   	// 7=Full assembly: base + table + speakers + lid CLOSED
 	*/
+
 $fn = 48;
 
 SHOW = 0;
@@ -307,11 +308,12 @@ table_post_z0 = floor_th;
 table_post_h  = table_plate_z0 - table_post_z0;
 
 // -------------------------
-// Center catch-support post + table contact pad
+// Catch-support posts under speaker pads (base) + matching pads (table)
 // -------------------------
 CENTER_CATCH_ENABLE = true;
 center_catch_gap = 0.5;
 
+// These are the small DOWNWARD table pads that land on the catch posts
 CENTER_PAD_ENABLE = true;
 center_pad_size   = 18.0;
 center_pad_th     = 1.6;
@@ -1006,7 +1008,7 @@ module lid_side_rails() {
     }
     if (yB2 >= y_min && yB2 <= y_max) {
       translate([x0, yB2 - lid_rib_wy/2, z_und - lid_side_rail_h])
-        box(x1 - x0, lid_rib_wy, lid_side_rail_h);
+        box(x1 - x0, lid_rib_wy, lid_rib_wy, lid_side_rail_h);
     }
   }
 }
@@ -1067,8 +1069,26 @@ module table_plate() {
       translate([x_mid - table_rib_w/2, post_y0(), table_plate_z0])
         box(table_rib_w, post_y1()-post_y0(), table_th);
 
+      // ------------------------------------------------------------
+      // Two table "support pads" under the + intersection region,
+      // aligned to the INNER edges of the two speaker pads.
+      // These replace the old single center pad that sat on the center post.
+      // ------------------------------------------------------------
       if (CENTER_PAD_ENABLE && center_pad_th > 0 && center_pad_size > 0) {
-        translate([x_mid - center_pad_size/2,
+
+        post_r = table_post_od/2;
+
+        // Inner edges of pads (facing centerline), inset by post radius
+        x_left_inner_support_unrot  = (xL + pad_w) - post_r; // inside right edge of left pad
+        x_right_inner_support_unrot = (xR) + post_r;         // inside left edge of right pad
+
+        // Pads extend DOWNWARD from underside of the table plate
+        translate([x_left_inner_support_unrot - center_pad_size/2,
+                   y_mid - center_pad_size/2,
+                   table_plate_z0 - center_pad_th])
+          box(center_pad_size, center_pad_size, center_pad_th);
+
+        translate([x_right_inner_support_unrot - center_pad_size/2,
                    y_mid - center_pad_size/2,
                    table_plate_z0 - center_pad_th])
           box(center_pad_size, center_pad_size, center_pad_th);
@@ -1201,13 +1221,39 @@ module base() {
   // Lid bosses
   lid_corner_bosses_quarter();
 
+  // ------------------------------------------------------------
+  // TWO catch-support posts under the INNER edges of both pads
+  // ------------------------------------------------------------
   if (CENTER_CATCH_ENABLE) {
+
+    // Must match table_plate() speaker-pad geometry
+    pad_w = spk_w + 2*spk_pad_margin;
+    pad_d = spk_d + 2*spk_pad_margin;
+
     cx = outer_len/2;
     cy_unrot = outer_wid/2 + spk_offset_y;
+
+    // Pad x positions (same as table_plate)
+    xL = cx - spk_offset_x - pad_w/2;  // left pad lower-left X
+    xR = cx + spk_offset_x - pad_w/2;  // right pad lower-left X
+
+    // Inner edges of pads (facing centerline), inset by post radius so the post lands under the pad
+    post_r = table_post_od/2;
+    x_left_inner_support_unrot  = (xL + pad_w) - post_r; // inside right edge of left pad
+    x_right_inner_support_unrot = (xR) + post_r;         // inside left edge of right pad
+
+    // Apply the same 180° rotation logic as lid/table (transform BOTH X and Y)
+    x_left_support  = ROTATE_LID_AND_TABLE ? (outer_len - x_left_inner_support_unrot)   : x_left_inner_support_unrot;
+    x_right_support = ROTATE_LID_AND_TABLE ? (outer_len - x_right_inner_support_unrot)  : x_right_inner_support_unrot;
     cy = ROTATE_LID_AND_TABLE ? (outer_wid - cy_unrot) : cy_unrot;
 
+    // Height: keep your existing clearance logic
     h_catch = max(0, table_post_h - ((CENTER_PAD_ENABLE ? center_pad_th : 0) + center_catch_gap));
-    translate([cx, cy, table_post_z0])
+
+    translate([x_left_support,  cy, table_post_z0])
+      cylinder(h=h_catch, d=table_post_od);
+
+    translate([x_right_support, cy, table_post_z0])
       cylinder(h=h_catch, d=table_post_od);
   }
 }
