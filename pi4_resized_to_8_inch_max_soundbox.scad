@@ -129,13 +129,31 @@
 
 $fn = 48;
 
-SHOW = 0;
+SHOW = 3;
 MIRROR_PORT_FACE = true;
 
 // Rotate lid + table (and speaker visual) 180° around Z relative to the base.
 ROTATE_LID_AND_TABLE = true;
 
 inch = 25.4;
+
+// -------------------------
+// “Stand on ports side” option
+// -------------------------
+// 0 = current behavior (USB-C on +Y wall; no speaker L supports)
+// 1 = standing-use option (USB-C moved to adjacent +X wall; add speaker supports for standing)
+STAND_MODE = 1;
+
+// Adjacent wall choice when STAND_MODE=1
+// (Implemented as +X.)
+USBC_ON_ADJACENT_X_WALL = true;
+
+// Speaker support wall geometry (table features that touch speaker body)
+SPK_LSUP_ENABLE = true;
+SPK_LSUP_CLEAR  = 0.6;   // clearance from speaker body
+SPK_LSUP_T      = 2.0;   // thickness of support wall
+SPK_LSUP_H      = 8.0;   // height above table plate
+SPK_LSUP_PAD_INSET = 5.0; // place wall 5mm in from pad edge (your request)
 
 // -------------------------
 // General print params
@@ -185,7 +203,7 @@ internal_wid_default = 2 * (pi_wid + 2*14);
 // Button openings on -Y wall
 // -------------------------
 button_open_h = 1.5 * inch; // kept for Z placement intent
-button_hole_d = 26.0;       // hole diameter unchanged
+button_hole_d = 25.5;       // hole diameter unchanged
 
 // Uneven button “allocation lengths” for spacing only
 button_len_L = 50.0;
@@ -244,9 +262,9 @@ USBC_SLIT_W = 9.0;
 USBC_SLIT_H = 4.2;
 
 USBC_SCREW_C2C = 17.0; // center-to-center gap
-USBC_SCREW_D   = 2.8;  // INCREASED (was 2.5) — diameter only, position unchanged
+USBC_SCREW_D   = 2.8;  // diameter only, position unchanged
 
-// Explicit placement: USB-C CENTER is exactly this far from the chosen outside edge (rendered view)
+// Explicit placement: center is exactly this far from the chosen outside edge
 usbc_center_from_edge = 35.0; // mm
 
 // -------------------------
@@ -265,14 +283,14 @@ usbc_post_clear_x  = 2.0;   // clearance beyond table post radius
 // -------------------------
 USBC_GUSSET_ENABLE = true;
 
-// How far the rib protrudes inward from the inside face of the +Y wall
+// How far the rib protrudes inward from the inside face of the wall
 usbc_gusset_in_y = 3.0;
 
 // Rib thickness (Z) and clearance from the slit
 usbc_gusset_h_z   = 2.0;
 usbc_gusset_gap_z = 2.5;
 
-// Rib span in X around USB-C (adds on both sides of the max span)
+// Rib span in X/Y around USB-C (adds on both sides of the max span)
 usbc_gusset_pad_x = 7.0;
 
 // -------------------------
@@ -512,7 +530,12 @@ function usbeth_x0r_to_model(x0r) =
 usbeth_x0_cut = usbeth_x0r_to_model(usbeth_x0_r_cut);
 
 // -------------------------
-// USB-C placement (RENDERED coords), explicit fixed-distance target
+// USB-C wall selection
+// -------------------------
+USBC_WALL_SEL = (STAND_MODE == 1 && USBC_ON_ADJACENT_X_WALL) ? "X" : "Y";
+
+// -------------------------
+// USB-C placement (for +Y wall) — existing logic retained
 // -------------------------
 usbc_half_span_x = max(USBC_SLIT_W/2, USBC_SCREW_C2C/2 + USBC_SCREW_D/2);
 
@@ -540,7 +563,7 @@ function forbL_a(px) = px - need + USBC_SCREW_C2C/2;
 function forbL_b(px) = px + need + USBC_SCREW_C2C/2;
 
 function forbR_a(px) = px - need - USBC_SCREW_C2C/2;
-function forbR_b(px) = px + need - USBC_SCREW_C2C/2;
+function forbR_b(px) = px + need + USBC_SCREW_C2C/2;
 
 function shift_out(x, a, b, dir) =
   (x < a || x > b) ? x :
@@ -581,11 +604,26 @@ usbc_x_center_r =
 
 usbc_x_center = xr_to_model(usbc_x_center_r);
 
+// -------------------------
+// USB-C placement on +X wall
+// Change requested: “closer to the OTHER corner of the wall”
+// Implemented as: measure from the opposite Y edge (near outer_wid), not from 0.
+// -------------------------
+usbc_y_half_span = usbc_half_span_x;
+
+usbc_y_center_min = usbc_edge_margin_x + usbc_y_half_span;
+usbc_y_center_max = outer_wid - usbc_edge_margin_x - usbc_y_half_span;
+
+// opposite edge targeting (closer to other corner)
+usbc_y_center = clamp(outer_wid - usbc_center_from_edge, usbc_y_center_min, usbc_y_center_max);
+
 // Diagnostics
 echo("outer_len=", outer_len, " outer_wid=", outer_wid, " outer_hgt=", outer_hgt);
 echo("USB/Eth REF rendered x0=", port_window_x0_ref(), " x1=", port_window_x1_ref(), " center=", port_center_x_ref());
 echo("USB/Eth CUT rendered x0=", usbeth_x0_r_cut, " (shift_r=", usbeth_shift_r, ")");
-echo("USB-C opposite side (left?)=", place_usbc_left, " rendered center=", usbc_x_center_r, " model center=", usbc_x_center);
+echo("USB-C wall=", USBC_WALL_SEL, " opposite side (left?)=", place_usbc_left,
+     " rendered centerX=", usbc_x_center_r, " model centerX=", usbc_x_center,
+     " centerY(for +X wall)=", usbc_y_center);
 
 // -------------------------
 // Cutouts on +Y wall
@@ -596,49 +634,70 @@ module usb_eth_window_plusY() {
     box(usbeth_win_len_x, (wall + 2.0) + 2.0, usbeth_win_h_z);
 }
 
-module usbc_slit_and_holes_plusY() {
+// -------------------------
+// USB-C slit + screw holes (generalized wall selection)
+// -------------------------
+module usbc_slit_and_holes_on_wall(wall_sel="Y") {
   cut_depth = wall + 2.0;
-
-  // Reverted to the known-working slit cut (position unchanged).
-  translate([usbc_x_center - USBC_SLIT_W/2,
-             outer_wid - cut_depth,
-             PANEL_MOUNT_Z])
-    box(USBC_SLIT_W, cut_depth + 2.0, USBC_SLIT_H);
 
   hole_z = PANEL_MOUNT_Z + USBC_SLIT_H/2;
 
-  // Screw holes: position unchanged, diameter increased via USBC_SCREW_D.
-  for (sx = [-USBC_SCREW_C2C/2, +USBC_SCREW_C2C/2]) {
-    translate([usbc_x_center + sx, outer_wid - wall/2, hole_z])
-      rotate([90,0,0])
-        cylinder(h=cut_depth + 6.0, d=USBC_SCREW_D, center=true);
+  if (wall_sel == "Y") {
+    // +Y wall
+    translate([usbc_x_center - USBC_SLIT_W/2,
+               outer_wid - cut_depth,
+               PANEL_MOUNT_Z])
+      box(USBC_SLIT_W, cut_depth + 2.0, USBC_SLIT_H);
+
+    for (sx = [-USBC_SCREW_C2C/2, +USBC_SCREW_C2C/2]) {
+      translate([usbc_x_center + sx, outer_wid - wall/2, hole_z])
+        rotate([90,0,0])
+          cylinder(h=cut_depth + 6.0, d=USBC_SCREW_D, center=true);
+    }
+  } else if (wall_sel == "X") {
+    // +X wall
+    translate([outer_len - cut_depth,
+               usbc_y_center - USBC_SLIT_W/2,
+               PANEL_MOUNT_Z])
+      box(cut_depth + 2.0, USBC_SLIT_W, USBC_SLIT_H);
+
+    for (sy = [-USBC_SCREW_C2C/2, +USBC_SCREW_C2C/2]) {
+      translate([outer_len - wall/2, usbc_y_center + sy, hole_z])
+        rotate([0,90,0])
+          cylinder(h=cut_depth + 6.0, d=USBC_SCREW_D, center=true);
+    }
   }
 }
 
-// Local inside pocket to thin +Y wall behind USB-C region (<=USBC_LOCAL_WALL_MAX)
-module usbc_local_wall_thin_pocket() {
+// Local inside pocket to thin the selected wall behind USB-C region (<=USBC_LOCAL_WALL_MAX)
+module usbc_local_wall_thin_pocket_on_wall(wall_sel="Y") {
   remove_t = wall - USBC_LOCAL_WALL_MAX;
   if (remove_t > 0) {
     pad_x = usbc_half_span_x + USBC_LOCAL_THIN_MARGIN_X;
-    x0 = usbc_x_center - pad_x;
-    x1 = usbc_x_center + pad_x;
 
     z0 = PANEL_MOUNT_Z - USBC_LOCAL_THIN_MARGIN_Z;
     z1 = PANEL_MOUNT_Z + USBC_SLIT_H + USBC_LOCAL_THIN_MARGIN_Z;
 
-    translate([x0, outer_wid - wall - remove_t, z0])
-      box(x1 - x0, remove_t + 0.2, z1 - z0);
+    if (wall_sel == "Y") {
+      x0 = usbc_x_center - pad_x;
+      x1 = usbc_x_center + pad_x;
+
+      translate([x0, outer_wid - wall - remove_t, z0])
+        box(x1 - x0, remove_t + 0.2, z1 - z0);
+    } else if (wall_sel == "X") {
+      y0 = usbc_y_center - pad_x;
+      y1 = usbc_y_center + pad_x;
+
+      translate([outer_len - wall - remove_t, y0, z0])
+        box(remove_t + 0.2, y1 - y0, z1 - z0);
+    }
   }
 }
 
-// USB-C internal gussets: ribs ABOVE and BELOW the slit on the INSIDE of the +Y wall.
-module usbc_internal_gussets() {
+// USB-C internal gussets: ribs ABOVE and BELOW the slit on the INSIDE of the selected wall.
+module usbc_internal_gussets_on_wall(wall_sel="Y") {
   if (USBC_GUSSET_ENABLE) {
-    span_x = 2*(usbc_half_span_x + usbc_gusset_pad_x);
-    x0 = usbc_x_center - span_x/2;
-
-    // Inside face of +Y wall is at y = outer_wid - wall
-    y0 = outer_wid - wall - usbc_gusset_in_y;
+    span = 2*(usbc_half_span_x + usbc_gusset_pad_x);
 
     z_below = PANEL_MOUNT_Z - usbc_gusset_gap_z - usbc_gusset_h_z;
     z_above = PANEL_MOUNT_Z + USBC_SLIT_H + usbc_gusset_gap_z;
@@ -646,19 +705,30 @@ module usbc_internal_gussets() {
     z_below_c = clamp(z_below, 0.2, underside_of_lid_z - usbc_gusset_h_z - 0.2);
     z_above_c = clamp(z_above, 0.2, underside_of_lid_z - usbc_gusset_h_z - 0.2);
 
-    if (z_below_c + usbc_gusset_h_z <= PANEL_MOUNT_Z - 0.2) {
-      translate([x0, y0, z_below_c])
-        box(span_x, usbc_gusset_in_y, usbc_gusset_h_z);
-    }
-    if (z_above_c >= PANEL_MOUNT_Z + USBC_SLIT_H + 0.2) {
-      translate([x0, y0, z_above_c])
-        box(span_x, usbc_gusset_in_y, usbc_gusset_h_z);
+    if (wall_sel == "Y") {
+      x0 = usbc_x_center - span/2;
+      y0 = outer_wid - wall - usbc_gusset_in_y;
+
+      if (z_below_c + usbc_gusset_h_z <= PANEL_MOUNT_Z - 0.2)
+        translate([x0, y0, z_below_c]) box(span, usbc_gusset_in_y, usbc_gusset_h_z);
+
+      if (z_above_c >= PANEL_MOUNT_Z + USBC_SLIT_H + 0.2)
+        translate([x0, y0, z_above_c]) box(span, usbc_gusset_in_y, usbc_gusset_h_z);
+    } else if (wall_sel == "X") {
+      x0 = outer_len - wall - usbc_gusset_in_y;
+      y0 = usbc_y_center - span/2;
+
+      if (z_below_c + usbc_gusset_h_z <= PANEL_MOUNT_Z - 0.2)
+        translate([x0, y0, z_below_c]) box(usbc_gusset_in_y, span, usbc_gusset_h_z);
+
+      if (z_above_c >= PANEL_MOUNT_Z + USBC_SLIT_H + 0.2)
+        translate([x0, y0, z_above_c]) box(usbc_gusset_in_y, span, usbc_gusset_h_z);
     }
   }
 }
 
 // -------------------------
-// Button openings on -Y wall (3x Ø24mm)
+// Button openings on -Y wall (3x Ø26mm)
 // -------------------------
 module button_openings_minusY() {
   eps = 0.8;
@@ -1008,8 +1078,7 @@ module lid_side_rails() {
     }
     if (yB2 >= y_min && yB2 <= y_max) {
       translate([x0, yB2 - lid_rib_wy/2, z_und - lid_side_rail_h])
-	box(x1 - x0, lid_rib_wy, lid_side_rail_h);
-
+        box(x1 - x0, lid_rib_wy, lid_side_rail_h);
     }
   }
 }
@@ -1026,6 +1095,26 @@ module table_corner_clearance_cutouts() {
     translate([outer_len - wall, wall,             zc]) cylinder(h=hh, r=table_corner_clear_r);
     translate([wall,             outer_wid - wall,  zc]) cylinder(h=hh, r=table_corner_clear_r);
     translate([outer_len - wall, outer_wid - wall,  zc]) cylinder(h=hh, r=table_corner_clear_r);
+  }
+}
+
+// Speaker support: ONE leg only (X-axis leg).
+// - runs along X (long in X), thin in Y
+// - placed toward the PORTS wall (your framing)
+// - 5mm away from the pad edge
+module spk_support_one_leg(x0, y0, w, d) {
+  if (SPK_LSUP_ENABLE && SPK_LSUP_H > 0 && SPK_LSUP_T > 0) {
+
+    // Run along X
+    x_in = x0 + SPK_LSUP_CLEAR;
+    w_in = max(0.2, w - 2*SPK_LSUP_CLEAR);
+
+    // FLIPPED to the opposite Y edge (so it moves away from the button wall
+    // and toward the ports wall in your view)
+    y_wall = y0 + SPK_LSUP_PAD_INSET;
+
+    translate([x_in, y_wall, table_plate_z0 + table_th])
+      box(w_in, SPK_LSUP_T, SPK_LSUP_H);
   }
 }
 
@@ -1062,6 +1151,12 @@ module table_plate() {
       translate([xL, y0, table_plate_z0]) box(pad_w, pad_d, table_th);
       translate([xR, y0, table_plate_z0]) box(pad_w, pad_d, table_th);
 
+      // Standing-use support walls
+      if (STAND_MODE == 1) {
+        spk_support_one_leg(xL, y0, pad_w, pad_d);
+        spk_support_one_leg(xR, y0, pad_w, pad_d);
+      }
+
       y_mid = cy;
       translate([post_x0(), y_mid - table_rib_w/2, table_plate_z0])
         box(post_x1()-post_x0(), table_rib_w, table_th);
@@ -1073,7 +1168,6 @@ module table_plate() {
       // ------------------------------------------------------------
       // Two table "support pads" under the + intersection region,
       // aligned to the INNER edges of the two speaker pads.
-      // These replace the old single center pad that sat on the center post.
       // ------------------------------------------------------------
       if (CENTER_PAD_ENABLE && center_pad_th > 0 && center_pad_size > 0) {
 
@@ -1147,7 +1241,9 @@ module lid() {
       translate([cx + spk_offset_x - spk_open_w/2, cy - spk_open_d/2, z0])
         box(spk_open_w, spk_open_d, lid_th + 0.2);
 
+      // Pouch opening
       if (POUCH_ENABLE) lid_pouch_opening_cut();
+      // Lid screw holes
       lid_screw_holes();
     }
 
@@ -1169,17 +1265,29 @@ module base() {
     translate([wall, wall, floor_th])
       box(internal_len, internal_wid, internal_hgt_local);
 
-    // +Y wall cutouts (mirrored as needed)
+    // +Y wall cutouts (USB/Eth always here; mirroring optional)
     if (MIRROR_PORT_FACE) {
       translate([outer_len, 0, 0]) mirror([1,0,0]) {
         usb_eth_window_plusY();
-        usbc_slit_and_holes_plusY();
-        usbc_local_wall_thin_pocket();
+
+        // USB-C: only mirror when it lives on +Y (port face).
+        if (USBC_WALL_SEL == "Y") {
+          usbc_slit_and_holes_on_wall("Y");
+          usbc_local_wall_thin_pocket_on_wall("Y");
+        }
       }
     } else {
       usb_eth_window_plusY();
-      usbc_slit_and_holes_plusY();
-      usbc_local_wall_thin_pocket();
+      if (USBC_WALL_SEL == "Y") {
+        usbc_slit_and_holes_on_wall("Y");
+        usbc_local_wall_thin_pocket_on_wall("Y");
+      }
+    }
+
+    // USB-C on adjacent +X wall (do NOT mirror, or it becomes -X)
+    if (USBC_WALL_SEL == "X") {
+      usbc_slit_and_holes_on_wall("X");
+      usbc_local_wall_thin_pocket_on_wall("X");
     }
 
     // -Y buttons
@@ -1189,13 +1297,17 @@ module base() {
     vents_on_side_walls();
   }
 
-  // Add USB-C internal ribs AFTER cutouts so they remain solid,
-  // and mirror them exactly the same way as the USB-C cutouts.
-  if (MIRROR_PORT_FACE) {
-    translate([outer_len, 0, 0]) mirror([1,0,0])
-      usbc_internal_gussets();
-  } else {
-    usbc_internal_gussets();
+  // Add USB-C internal ribs AFTER cutouts so they remain solid.
+  // Mirror only when USB-C is on +Y.
+  if (USBC_WALL_SEL == "Y") {
+    if (MIRROR_PORT_FACE) {
+      translate([outer_len, 0, 0]) mirror([1,0,0])
+        usbc_internal_gussets_on_wall("Y");
+    } else {
+      usbc_internal_gussets_on_wall("Y");
+    }
+  } else if (USBC_WALL_SEL == "X") {
+    usbc_internal_gussets_on_wall("X");
   }
 
   // ---- Pi placement (align cluster center to REF port center) ----
