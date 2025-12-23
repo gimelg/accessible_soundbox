@@ -153,7 +153,7 @@ SPK_LSUP_ENABLE = true;
 SPK_LSUP_CLEAR  = 0.6;   // clearance from speaker body
 SPK_LSUP_T      = 2.0;   // thickness of support wall
 SPK_LSUP_H      = 8.0;   // height above table plate
-SPK_LSUP_PAD_INSET = 5.0; // place wall 5mm in from pad edge (your request)
+SPK_LSUP_PAD_INSET = 4.0; // place wall 4mm in from pad edge (your request)
 
 // -------------------------
 // General print params
