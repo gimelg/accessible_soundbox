@@ -7,5 +7,7 @@ if [ ! -p "$FIFO" ]; then
 fi
 
 # Forward all arguments as one command line to mplayer
-echo "$@" > "$FIFO"
+# Use printf with %q to properly quote arguments containing spaces
+printf '%q ' "$@" > "$FIFO"
+echo >> "$FIFO"
 
