@@ -1,34 +1,37 @@
 #!/bin/bash
+set -euo pipefail
 
-AUDIO_DIR="/home/USER/audiobooks"
-CTL="/home/USER/audiobox_ctl.sh"
-STATE="/home/USER/.audiobox_state"
+AUDIO_DIR="/home/gershon/audiobooks"
+CTL="/home/gershon/audiobox_ctl.sh"
+STATE="/home/gershon/.audiobox_state"
+PLAYLIST="/tmp/audiobox.m3u"
 
 shopt -s nullglob
-files=("$AUDIO_DIR"/*)
+
+# Build M3U playlist (one absolute path per line)
+: > "$PLAYLIST"
+for f in "$AUDIO_DIR"/*; do
+  base="$(basename "$f")"
+  [[ "$base" == .* ]] && continue
+  [[ "$base" == "._"* ]] && continue
+  [[ "$base" == ".DS_Store" ]] && continue
+  [[ -f "$f" ]] || continue
+  echo "$f" >> "$PLAYLIST"
+done
 
 # If no files, do nothing
-if [ ${#files[@]} -eq 0 ]; then
+if [ ! -s "$PLAYLIST" ]; then
   exit 0
 fi
 
 # Stop current playback
-$CTL stop
+"$CTL" stop
 
-# Build playlist
-first=1
-for f in "${files[@]}"; do
-  base="$(basename "$f")"
-  [[ "$base" == .* ]] && continue
+# Load the playlist file as the playtree (replace current)
+"$CTL" loadlist "$PLAYLIST" 0
 
-  if [ $first -eq 1 ]; then
-    $CTL loadfile "$f" 0
-    first=0
-  else
-    $CTL loadfile "$f" 1
-  fi
-done
+# Start playback at first entry
+"$CTL" pt_step 1
 
 # Update state
 echo "PLAYING" > "$STATE"
-
