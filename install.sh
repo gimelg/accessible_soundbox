@@ -147,6 +147,17 @@ exec mplayer -slave -idle -quiet -input file="$FIFO"
 '
 make_exec_user "${TARGET_HOME}/start_audiobox_player.sh"
 
+# Boot greeting script (runs once per boot via systemd)
+write_user_file "${TARGET_HOME}/audiobox_boot_ready.sh" \
+'#!/bin/bash
+set -e
+
+sleep 2
+espeak-ng "Hello, soundbox is ready."
+'
+make_exec_user "${TARGET_HOME}/audiobox_boot_ready.sh"
+
+
 # Updated: command-aware ctl that quotes only paths for loadfile/loadlist.
 write_user_file "${TARGET_HOME}/audiobox_ctl.sh" \
 '#!/bin/bash
@@ -522,7 +533,7 @@ def process_usb() -> None:
                 safe_copy(f, AUDIO_DIR)
                 added = True
         if added:
-            speak("New books added")
+            speak("New Audio added")
 
     library = USB_MOUNT / "library.txt"
     to_delete = parse_deletion_from_library(library)
@@ -533,7 +544,7 @@ def process_usb() -> None:
             if safe_delete(name, AUDIO_DIR):
                 deleted = True
         if deleted:
-            speak("Books deleted")
+            speak("Audio deleted")
 
     write_library_to_usb()
 
@@ -694,10 +705,10 @@ WantedBy=multi-user.target
 
 # NEW: Boot greeting unit (oneshot)
 write_root_file "/etc/systemd/system/audiobox-boot-ready.service" \
-'[Unit]
+'
+[Unit]
 Description=Audiobox boot ready announcement
-After=audiobox-player.service sound.target
-Wants=audiobox-player.service
+After=multi-user.target
 
 [Service]
 Type=oneshot
